@@ -1,5 +1,5 @@
-#!/bin/bash
-
+#!/bin/bash -Eeux
+set -o pipefail
 # SPDX-License-Identifier: MIT
 
 # Copyright (c) 2019, DornerWorks, Ltd.
@@ -12,7 +12,7 @@ PROXY_CFG="";
 DNS_SERVER="8.8.8.8";
 
 ARCH_CFG="arm64";
-IMAGE_SIZE=1024;
+IMAGE_SIZE=1524;
 
 # build type guest or host
 BUILD_TYPE="host"; 
@@ -59,7 +59,7 @@ ARTIFACTS=domu.tar
 
 BUILD_ARCH=$ARCH_CFG
 
-sudo apt install device-tree-compiler tftpd-hpa flex bison qemu-utils kpartx git curl qemu-user-static binfmt-support parted bc libncurses5-dev libssl-dev pkg-config python acpica-tools
+sudo apt install device-tree-compiler tftpd-hpa flex bison qemu-utils kpartx git curl qemu-user-static binfmt-support parted bc libncurses5-dev libssl-dev pkg-config python2 acpica-tools
 
 source ${SCRIPTDIR}toolchain-aarch64-linux-gnu.sh
 
@@ -150,9 +150,78 @@ sudo mkdir -p ${MNTROOTFS}
 sudo mount ${LOOPDEVROOTFS} ${MNTROOTFS}
 
 sudo tar -C ${MNTROOTFS} -xf ${ROOTFS}
-
+read -r E
 mountstuff
+# =====Build Xen tools=====
+cd ${WRKDIR}
 
+CROSS_PREFIX=aarch64-linux-gnu
+#PLATFORM_PREFIX=aarch64-none-linux-gnu
+PLATFORM_PREFIX=aarch64-linux-gnu
+XEN_ARCH=arm64
+# Change the shared library symlinks to relative instead of absolute so they play nice with cross-compiling
+sudo chroot ${MNTROOTFS} symlinks -c /usr/lib/${CROSS_PREFIX}/
+
+cd ${WRKDIR}xen
+
+# TODO: --with-xenstored=oxenstored
+# make XEN_TARGET_ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- clean
+sudo make XEN_TARGET_ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- clean
+# Ask the native compiler what system include directories it searches through.
+SYSINCDIRS=$(echo $(sudo chroot ${MNTROOTFS} bash -c "echo | gcc -E -Wp,-v -o /dev/null - 2>&1" | grep "^ " | sed "s|^ /| -isystem${MNTROOTFS}|"))
+SYSINCDIRSCXX=$(echo $(sudo chroot ${MNTROOTFS} bash -c "echo | g++ -x c++ -E -Wp,-v -o /dev/null - 2>&1" | grep "^ " | sed "s|^ /| -isystem${MNTROOTFS}|"))
+
+CC="${PLATFORM_PREFIX}-gcc --sysroot=${MNTROOTFS} -nostdinc ${SYSINCDIRS} -B${MNTROOTFS}lib/${CROSS_PREFIX} -B${MNTROOTFS}usr/lib/${CROSS_PREFIX}"
+CXX="${PLATFORM_PREFIX}-g++ --sysroot=${MNTROOTFS} -nostdinc ${SYSINCDIRSCXX} -B${MNTROOTFS}lib/${CROSS_PREFIX} -B${MNTROOTFS}usr/lib/${CROSS_PREFIX}"
+LDFLAGS="-Wl,-rpath-link=${MNTROOTFS}lib/${CROSS_PREFIX} -Wl,-rpath-link=${MNTROOTFS}usr/lib/${CROSS_PREFIX}"
+
+PKG_CONFIG=pkg-config \
+PKG_CONFIG_LIBDIR=${MNTROOTFS}usr/lib/${CROSS_PREFIX}/pkgconfig:${MNTROOTFS}usr/share/pkgconfig \
+PKG_CONFIG_SYSROOT_DIR=${MNTROOTFS} \
+LDFLAGS="${LDFLAGS}" \
+./configure \
+    PYTHON_PREFIX_ARG=--install-layout=deb \
+    --enable-systemd \
+    --disable-xen \
+    --enable-tools \
+    --disable-docs \
+    --disable-stubdom \
+    --prefix=/usr \
+    --with-xenstored=xenstored \
+    --build=x86_64-linux-gnu \
+    --host=${PLATFORM_PREFIX} \
+    CC="${CC}" \
+    CXX="${CXX}"
+
+PKG_CONFIG=pkg-config \
+PKG_CONFIG_LIBDIR=${MNTROOTFS}usr/lib/${CROSS_PREFIX}/pkgconfig:${MNTROOTFS}usr/share/pkgconfig \
+PKG_CONFIG_SYSROOT_DIR=${MNTROOTFS} \
+LDFLAGS="${LDFLAGS}" \
+make dist-tools \
+    CROSS_COMPILE=${PLATFORM_PREFIX}- XEN_TARGET_ARCH=${XEN_ARCH} \
+    CC="${CC}" \
+    CXX="${CXX}" \
+    -j $(nproc)
+
+sudo --preserve-env PATH=${PATH} \
+PKG_CONFIG=pkg-config \
+PKG_CONFIG_LIBDIR=${MNTROOTFS}usr/lib/${CROSS_PREFIX}/pkgconfig:${MNTROOTFS}usr/share/pkgconfig \
+PKG_CONFIG_SYSROOT_DIR=${MNTROOTFS} \
+LDFLAGS="${LDFLAGS}" \
+make install-tools \
+    CROSS_COMPILE=${PLATFORM_PREFIX}- XEN_TARGET_ARCH=${XEN_ARCH} \
+    CC="${CC}" \
+    CXX="${CXX}" \
+    DESTDIR=${MNTROOTFS}
+
+sudo chroot ${MNTROOTFS} systemctl enable xen-qemu-dom0-disk-backend.service
+sudo chroot ${MNTROOTFS} systemctl enable xen-init-dom0.service
+sudo chroot ${MNTROOTFS} systemctl enable xenconsoled.service
+sudo chroot ${MNTROOTFS} systemctl enable xendomains.service
+sudo chroot ${MNTROOTFS} systemctl enable xen-watchdog.service
+
+cd ${WRKDIR}
+# ===== Build Xen tools over=====
 # /etc/hostname
 sudo bash -c "echo ${HOSTNAME} > ${MNTROOTFS}etc/hostname"
 

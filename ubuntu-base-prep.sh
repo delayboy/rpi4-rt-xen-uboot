@@ -21,8 +21,8 @@ echo $PROXY
 sudo apt install qemu-user-static
 
 # Download Ubuntu Base file system (https://wiki.ubuntu.com/Base)
-ROOTFSURL=http://cdimage.ubuntu.com/ubuntu-base/releases/18.04.3/release/
-ROOTFS=ubuntu-base-18.04.3-base-${ARCH}.tar.gz
+ROOTFSURL=http://cdimage.ubuntu.com/ubuntu-base/releases/18.04.5/release/
+ROOTFS=ubuntu-base-18.04.5-base-${ARCH}.tar.gz
 if [ ! -s ${ROOTFS} ]; then
     curl -OLf ${ROOTFSURL}${ROOTFS}
 fi
@@ -82,9 +82,9 @@ elif [ "${ARCH}" == "armhf" ]; then
 fi
 
 # /etc/resolv.conf is required for internet connectivity in chroot. It will get overwritten by dhcp, so don't get too attached to it.
-if [ ! -z ${DNS_SERVER} ]; then
-    sudo chroot ${MNTROOTFS} bash -c 'echo "nameserver '$DNS_SERVER'" > /etc/resolv.conf'
-fi
+#if [ ! -z ${DNS_SERVER} ]; then
+    #sudo chroot ${MNTROOTFS} bash -c 'echo "nameserver '$DNS_SERVER'" > /etc/resolv.conf'
+#fi
 
 sudo sed -i -e "s/# deb /deb /" ${MNTROOTFS}etc/apt/sources.list
 echo $PROXY
@@ -92,13 +92,19 @@ if [ ! -z ${PROXY} ]; then
     sudo chroot ${MNTROOTFS} bash -c 'echo "Acquire::http::Proxy \"http://'$PROXY'\""; > etc/apt/apt.conf'
     sudo cat ${MNTROOTFS}etc/apt/apt.conf
 fi
-
+echo "设置代理" ${IMGFILE} ${MNTROOTFS}
+read -r package_names
+sudo chroot ${MNTROOTFS} bash -Eeuxc '
+echo "Acquire::http::Proxy \"http://192.168.80.1:10811/\";" > /etc/apt/apt.conf.d/proxy.conf;
+echo "Acquire::https::Proxy \"http://192.168.80.1:10811/\";" >> /etc/apt/apt.conf.d/proxy.conf;
+'
 sudo  chroot  ${MNTROOTFS} apt-get update
 
 # Install the dialog package and others first to squelch some warnings
 sudo chroot ${MNTROOTFS} apt-get -y install dialog apt-utils
 sudo chroot ${MNTROOTFS} apt-get -y upgrade
-sudo chroot ${MNTROOTFS} apt-get -y install systemd systemd-sysv sysvinit-utils sudo udev rsyslog kmod util-linux sed netbase dnsutils ifupdown isc-dhcp-client isc-dhcp-common less nano vim net-tools iproute2 iputils-ping libnss-mdns iw software-properties-common ethtool dmsetup hostname iptables logrotate lsb-base lsb-release plymouth psmisc tar tcpd libsystemd-dev symlinks uuid-dev libc6-dev libncurses-dev libglib2.0-dev build-essential bridge-utils zlib1g-dev patch libpixman-1-dev libyajl-dev libfdt-dev libaio-dev git libusb-1.0-0-dev libpulse-dev libcapstone-dev libnl-route-3-dev openssh-sftp-server
+sudo chroot ${MNTROOTFS} apt-get -y install systemd systemd-sysv sysvinit-utils sudo udev rsyslog kmod util-linux sed netbase dnsutils ifupdown isc-dhcp-client isc-dhcp-common less nano vim net-tools iproute2 iputils-ping libnss-mdns iw software-properties-common ethtool dmsetup hostname iptables logrotate lsb-base lsb-release plymouth psmisc tar tcpd libsystemd-dev symlinks uuid-dev libc6-dev libncurses-dev libglib2.0-dev build-essential bridge-utils zlib1g-dev patch libpixman-1-dev libyajl-dev libfdt-dev libaio-dev git libusb-1.0-0-dev libpulse-dev libcapstone-dev libnl-route-3-dev openssh-sftp-server 
+sudo chroot ${MNTROOTFS} apt-get -y install bcc bin86 gawk bridge-utils iproute2 libcurl4 libcurl4-openssl-dev bzip2 transfig libpixman-1-dev libssl-dev
 sudo chroot ${MNTROOTFS} apt-get clean
 sudo cp regenerate_ssh_host_keys.service ${MNTROOTFS}etc/systemd/system
 sudo chroot ${MNTROOTFS} systemctl enable regenerate_ssh_host_keys.service

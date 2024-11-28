@@ -57,8 +57,12 @@ VARIANT=dom0
 
 BUILD_ARCH=$ARCH_CFG
 
-sudo apt install device-tree-compiler tftpd-hpa flex bison qemu-utils kpartx git curl qemu-user-static binfmt-support parted bc libncurses5-dev libssl-dev pkg-config python2 acpica-tools u-boot-tools
-
+#sudo apt install device-tree-compiler tftpd-hpa flex bison qemu-utils kpartx git curl qemu-user-static binfmt-support parted bc libncurses5-dev libssl-dev pkg-config python2 acpica-tools u-boot-tools 
+#sudo apt-get install bcc bin86 gawk bridge-utils iproute2 libcurl4 libcurl4-openssl-dev bzip2 transfig tgif mercurial # module-init-tools 
+#sudo apt-get install make gcc libc6-dev zlib1g-dev python2 python2-dev libncurses5-dev patch libvncserver-dev libsdl1.2-dev libjpeg-dev
+#sudo apt-get install iasl libbz2-dev e2fslibs-dev git-core uuid-dev ocaml ocaml-findlib libx11-dev bison flex xz-utils libyajl-dev
+#sudo apt-get install gettext libglib2.0-dev
+#sudo apt install python2 python2-dev gettext libpixman-1-dev libssl-dev libfdt-dev libnl-3-dev libnl-cli-3-dev pandoc markdown fig2dev libaio-dev
 source ${SCRIPTDIR}toolchain-aarch64-linux-gnu.sh
 
 DTBFILE=bcm2711-rpi-4-b.dtb
@@ -70,11 +74,10 @@ if [ ! -d firmware ]; then
 fi
 
 if [ ! -d xen ]; then
-    # git clone git://localhost:1080/xen.git
+    # git clone https://github.com/delayboy/RT-Xen.git xen
     git clone https://github.com/delayboy/ARM64_XEN.git xen
     cd xen
-    # git checkout RELEASE-4.13.0
-    git checkout xen-4-13
+    git checkout rt-xen-4-13
     git am ${SCRIPTDIR}patches/xen/0001-XEN-on-RPi4-1GB-lmitation-workaround-XEN-tries-to-al.patch
     cd ${WRKDIR}
 fi
@@ -105,7 +108,6 @@ fi
 if [ ! -s ${WRKDIR}xen/xen/Makefile ]; then
     cd ${WRKDIR}xen
     if [ ! -s xen/.config ]; then
-    
         cat > xen/arch/arm/configs/rpi4_defconfig << EOF
 CONFIG_DEBUG=y
 CONFIG_SCHED_ARINC653=y
@@ -121,16 +123,12 @@ fi
 # aarch64-linux-gnu- change to aarch64-none-linux-gnu- 
 if [ ! -s ${WRKDIR}xen/xen/xen ]; then
     cd ${WRKDIR}xen
-    if [ ! -s xen/.config ]; then
-    read -r wdwa
-        echo "CONFIG_DEBUG=y" > xen/arch/arm/configs/arm64_defconfig
-        echo "CONFIG_SCHED_ARINC653=y" >> xen/arch/arm/configs/arm64_defconfig
-      make -C xen XEN_TARGET_ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- CONFIG_EARLY_PRINTK=8250,0xfe215040,2 defconfig
-      #make -C xen XEN_TARGET_ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- clean
+    if [ ! -s ./config.status ]; then
+    	read -r sa
+        ./configure CFLAGS="-I/usr/include" #--disable-docs
     fi
     echo =====Build xen=====
-   make XEN_TARGET_ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- CONFIG_EARLY_PRINTK=8250,0xfe215040,2 dist-xen -j $(nproc)
-   #make XEN_TARGET_ARCH=arm64 CROSS_COMPILE=aarch64-none-linux-gnu- clean
+    make XEN_TARGET_ARCH=arm64 V=1 debug=y CROSS_COMPILE=aarch64-none-linux-gnu- CONFIG_EARLY_PRINTK=8250,0xfe215040,2 dist-xen # dist-xen # clean
     cd ${WRKDIR}
 fi
 
@@ -332,13 +330,14 @@ CC="${PLATFORM_PREFIX}-gcc --sysroot=${MNTROOTFS} -nostdinc ${SYSINCDIRS} -B${MN
 CXX="${PLATFORM_PREFIX}-g++ --sysroot=${MNTROOTFS} -nostdinc ${SYSINCDIRSCXX} -B${MNTROOTFS}lib/${CROSS_PREFIX} -B${MNTROOTFS}usr/lib/${CROSS_PREFIX}"
 LDFLAGS="-Wl,-rpath-link=${MNTROOTFS}lib/${CROSS_PREFIX} -Wl,-rpath-link=${MNTROOTFS}usr/lib/${CROSS_PREFIX}"
 
+echo sudo chroot ${MNTROOTFS}
+read -r asdasd
 PKG_CONFIG=pkg-config \
 PKG_CONFIG_LIBDIR=${MNTROOTFS}usr/lib/${CROSS_PREFIX}/pkgconfig:${MNTROOTFS}usr/share/pkgconfig \
 PKG_CONFIG_SYSROOT_DIR=${MNTROOTFS} \
 LDFLAGS="${LDFLAGS}" \
 ./configure \
     PYTHON_PREFIX_ARG=--install-layout=deb \
-    --enable-systemd \
     --disable-xen \
     --enable-tools \
     --disable-docs \
@@ -349,13 +348,13 @@ LDFLAGS="${LDFLAGS}" \
     --host=${PLATFORM_PREFIX} \
     CC="${CC}" \
     CXX="${CXX}"
-
+ # 不支持systemed--enable-systemd \
 PKG_CONFIG=pkg-config \
 PKG_CONFIG_LIBDIR=${MNTROOTFS}usr/lib/${CROSS_PREFIX}/pkgconfig:${MNTROOTFS}usr/share/pkgconfig \
 PKG_CONFIG_SYSROOT_DIR=${MNTROOTFS} \
 LDFLAGS="${LDFLAGS}" \
 make dist-tools \
-    CROSS_COMPILE=${PLATFORM_PREFIX}- XEN_TARGET_ARCH=${XEN_ARCH} \
+    V=1 CROSS_COMPILE=${PLATFORM_PREFIX}- XEN_TARGET_ARCH=${XEN_ARCH} \
     CC="${CC}" \
     CXX="${CXX}" \
     -j $(nproc)
@@ -366,16 +365,17 @@ PKG_CONFIG_LIBDIR=${MNTROOTFS}usr/lib/${CROSS_PREFIX}/pkgconfig:${MNTROOTFS}usr/
 PKG_CONFIG_SYSROOT_DIR=${MNTROOTFS} \
 LDFLAGS="${LDFLAGS}" \
 make install-tools \
-    CROSS_COMPILE=${PLATFORM_PREFIX}- XEN_TARGET_ARCH=${XEN_ARCH} \
+    V=1 CROSS_COMPILE=${PLATFORM_PREFIX}- XEN_TARGET_ARCH=${XEN_ARCH} \
     CC="${CC}" \
     CXX="${CXX}" \
     DESTDIR=${MNTROOTFS}
 
-sudo chroot ${MNTROOTFS} systemctl enable xen-qemu-dom0-disk-backend.service
-sudo chroot ${MNTROOTFS} systemctl enable xen-init-dom0.service
-sudo chroot ${MNTROOTFS} systemctl enable xenconsoled.service
-sudo chroot ${MNTROOTFS} systemctl enable xendomains.service
-sudo chroot ${MNTROOTFS} systemctl enable xen-watchdog.service
+#sudo chroot ${MNTROOTFS} systemctl enable xen-qemu-dom0-disk-backend.service
+#sudo chroot ${MNTROOTFS} systemctl enable xen-init-dom0.service
+#sudo chroot ${MNTROOTFS} systemctl enable xenconsoled.service
+#sudo chroot ${MNTROOTFS} systemctl enable xendomains.service
+#sudo chroot ${MNTROOTFS} systemctl enable xen-watchdog.service
+sudo chroot ${MNTROOTFS} service xencommons start
 
 cd ${WRKDIR}
 
